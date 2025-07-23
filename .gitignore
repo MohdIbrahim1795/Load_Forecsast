@@ -1,0 +1,22 @@
+# .gitignore
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+
+# Virtual environments
+loaf/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Data files
+*.csv
+*.pkl
+*.h5
