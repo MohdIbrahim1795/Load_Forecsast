@@ -1,0 +1,16 @@
+2025-07-30 00:13:37 - __main__ - INFO - Starting feeder data processing
+2025-07-30 00:13:37 - __main__ - INFO - Feeder data read successfully
+2025-07-30 00:13:37 - __main__ - ERROR - Failed to save feeder data: expected str, bytes or os.PathLike object, not NoneType
+2025-07-30 00:13:37 - __main__ - CRITICAL - Program failed: expected str, bytes or os.PathLike object, not NoneType
+Traceback (most recent call last):
+  File "D:\Data Science Projects\Load Forecast\Feeder.py", line 46, in main
+    save_feeder_data(
+  File "D:\Data Science Projects\Load Forecast\Feeder.py", line 30, in save_feeder_data
+    output_paths= os.path.join(os.makedirs(directory, exist_ok=True), filename)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen ntpath>", line 108, in join
+TypeError: expected str, bytes or os.PathLike object, not NoneType
+2025-07-30 00:17:29 - __main__ - INFO - Starting feeder data processing
+2025-07-30 00:17:29 - __main__ - INFO - Feeder data read successfully
+2025-07-30 00:17:29 - __main__ - INFO - Feeder data saved to ./Source Data\Feeder.csv
+2025-07-30 00:17:29 - __main__ - INFO - Feeder data processing completed successfully

@@ -1,8 +1,38 @@
 # Core dependencies
 requests==2.31
 pandas==2.1.4
+numpy>=1.21.0
 python-dotenv==1.0.0
 
 # Date/time handling
 python-dateutil==2.8.2
 pytz==2023.3.post1
+
+# Core Requirements
+pandas>=1.3.0  # Data manipulation and CSV export
+numpy>=1.21.0  # Random number generation for simulation
+scipy>=1.7.0
+
+# Utility Libraries
+typing-extensions>=4.0.0  # Type hint support (for Python <3.9)
+
+# Development/Testing (Optional)
+pytest>=7.0.0  # For running tests
+mypy>=0.910  # Static type checking
+pylint>=2.12.0  # Code quality analysis
+
+# Core Data Science
+pandas>=1.3.0
+numpy>=1.21.0
+
+
+# Machine Learning
+scikit-learn>=1.0.0
+lightgbm>=3.3.0
+statsmodels>=0.13.0
+prophet>=1.1.0
+joblib>=1.0.0
+
+# Utilities
+requests>=2.26.0
+psutil>=5.8.0
