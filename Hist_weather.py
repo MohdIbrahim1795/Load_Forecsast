@@ -8,8 +8,12 @@ import requests
 import pytz
 import os
 import time
-import logging
 from typing import Dict, List
+from src.logger_config import setup_logger  # Import our custom logger
+
+# Set up the logger
+logger = setup_logger(__name__, 'Historical_Weather.log')
+
 
 # --------------------------
 # 1. CONFIGURATION
@@ -47,15 +51,6 @@ WEATHER_CODES = {
 # --------------------------
 # 2. LOGGING SETUP
 # --------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('weather_data.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # --------------------------
 # 3. CORE FUNCTIONS (FIXED TIMEZONE HANDLING)

@@ -1,23 +1,12 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import logging
+from src.logger_config import setup_logger
 import os
 from typing import List, Dict
 
-#Setting up the logging configurtaion
-def setup_logger():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('feeder_data_generation.log'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
 
-logger = setup_logger()
+logger = setup_logger(__name__, 'feeder_data.log')
 
 #Configuring the output directoey name and filename
 CONFIG = {

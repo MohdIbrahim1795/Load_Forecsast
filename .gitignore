@@ -4,7 +4,9 @@ __pycache__/
 *.py[cod]
 *.so
 *.egg-info/
-*.egg
+*.egg/
+sample_data.py
+Feature_Analysis.py
 
 # Virtual environments
 loaf/
@@ -20,3 +22,5 @@ env/
 *.csv
 *.pkl
 *.h5
+*.log
+*.pickle
