@@ -148,8 +148,8 @@ def train_model():
             logger.info("Started Preparing data for Linear Regression")
             f1_mask = temp_merged['Feeder_ID'] == feeder
             
-            X = column_selection(temp_merged[f1_mask])
-            Y = temp_merged[f1_mask][['final_usage']]
+            X = column_selection(temp_merged)
+            Y = temp_merged['final_usage']
             
             X_Y_DF=pd.DataFrame({
             'Column': X.columns,
@@ -175,19 +175,24 @@ def train_model():
                 print(X[non_numeric_cols].head())
             X = X.apply(pd.to_numeric, errors='coerce').astype(np.float32)
 
+            # Add constant for intercept
+            X_const = sm.add_constant(X, has_constant='add')
+        
+
+            # Train OLS model
+            ols_model = sm.OLS(Y, X_const)
+            results = ols_model.fit()
             
-            model = linear_model.OLS(Y, X, positive=True)
-            results = model.fit()
             model_path = os.path.join("D:/Data Science Projects/Load Forecast/src/Model_P", 
                                     f"{feeder}_LR.pickle")
-            save_model(model, model_path)
+            save_model(results, model_path)
             logger.info(f"Linear Regression model saved for feeder {feeder}")
             
             #Training the LightGBM model
     
             logger.info("Training LightGBM model")
-            X = column_selection(temp_merged[f1_mask])
-            Y = temp_merged[f1_mask][['final_usage']]
+            X = column_selection(temp_merged)
+            Y = temp_merged['final_usage']
              # Ensure all data is float
             # Drop rows with any NaNs after conversion
             X = X.dropna()
@@ -219,41 +224,7 @@ def train_model():
              }
 
             print('Start training...')
-            # diagnostic: confirm lgb.train is real LightGBM function
-            # --- Prepare train/test split (as before) ---
-            X_train = X.iloc[:int(X.shape[0]*0.9)].reset_index(drop=True)
-            X_test  = X.iloc[int(X.shape[0]*0.9):].reset_index(drop=True)
-            y_train = Y.iloc[:int(Y.shape[0]*0.9)].squeeze().reset_index(drop=True)  # squeeze -> Series
-            y_test  = Y.iloc[int(Y.shape[0]*0.9):].squeeze().reset_index(drop=True)
-
-            # quick checks
-            if X_train.empty or X_test.empty or y_train.empty or y_test.empty:
-                logger.warning(f"Empty split for feeder {feeder}. Skipping LGBM.")
-            else:
-                lgb_train = lgb.Dataset(X_train.values, label=y_train.values)
-                lgb_eval  = lgb.Dataset(X_test.values,  label=y_test.values, reference=lgb_train)
-
-            params = {
-            'task': 'train',
-            'boosting_type': 'gbdt',
-            'objective': 'regression',
-            'metric': 'mape',
-            'num_leaves': 200,
-            'learning_rate': 0.05,
-            'feature_fraction': 0.7,
-            'bagging_fraction': 0.7,
-            'bagging_freq': 50,
-            'verbose': 1
-            }
-
-            print('Start training...')
-            # diagnostic: confirm lgb.train is real LightGBM function
-            import inspect
-            print("LightGBM version:", getattr(lgb, "__version__", None))
-            print("LightGBM file:", getattr(lgb, "__file__", None))
-            print("train() definition location:", inspect.getsourcefile(lgb.train))
-            print("train() signature:", inspect.signature(lgb.train))
-
+           
             lgb_model = lgb.train(
             params,
             lgb_train,
@@ -270,6 +241,7 @@ def train_model():
                               f"{feeder}_flat_LGBM.pickle")
             save_model(lgb_model, model_path)
             logger.info(f"LightGBM model saved for feeder: {feeder}")
+        return temp_merged
                  
     except Exception as e:
         logger.error(f"Error in model training process: {str(e)}")

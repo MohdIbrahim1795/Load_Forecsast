@@ -1,125 +1,271 @@
-future = pd.DataFrame(fb_df['ds'])
+import os
+import sys 
+import pickle
+import requests
+from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error
+from src.logger_config import setup_logger
+from pathlib import Path
+import statsmodels.api as sm
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+logger = setup_logger(__name__, 'Model_Testing.log')
+from src.preprocessed_analysis import (
+    weather_features,
+    column_selection,
+    get_feeder_list,
+    create_forecasted_df,
+    weather_data,
+    Merged_Data
+)
 
-    # future
+logger.info("Model Testing started")
 
+def load_model(path):
+    try:
+        with open(path, 'rb') as f:
+            model = pickle.load(f)
+        logger.info(f"Model loaded successfully from {path}")
+        return model
+    except Exception as e:
+        logger.error(f"Error loading model from {path}: {e}")
+        return None
+    
 
-    # future = m.make_future_dataframe(periods=2160,freq='h')
+#Creating function to perform the testing on test data
+def test_data():
+    
+    try:
+        result_summary = pd.DataFrame([])
+        logger.info("Data received for model training")
+        feeder_path = Path("D:/Data Science Projects/Load Forecast/Source Data/Feeder.csv")
+        usage_path = Path("D:/Data Science Projects/Load Forecast/Source Data/Historical_Usage.csv")
+        weather_path = Path("D:/Data Science Projects/Load Forecast/Source Data/Weather_Data.csv")
+        Feeders_List = get_feeder_list(feeder_path)
+        forecast_data = create_forecasted_df(usage_path)
+        Weather_data= weather_data(weather_path)
+    
+    except Exception as e:
+        logger.error(f"Error in data preparation: {str(e)}")
+        raise ValueError("Data preparation failed") from e  
+    
+    try:
+        logger.info("Starting model testing process")
+        for feeder in Feeders_List:
+            logger.info(f"Processing feeder: {feeder}")
+            forecast_data = forecast_data
+            feeder_data = forecast_data.loc[forecast_data['Feeder_ID'] == feeder]
+            temp_merged = Merged_Data(feeder_data, Weather_data)
+
+            if temp_merged.empty:
+                logger.warning(f"No forecast data found for feeder {feeder}. Skipping.")
+                continue
+                
+            # Get weather data and merge with forecast data
+        
+            if temp_merged is None or temp_merged.empty:
+                logger.error(f"No merged data found for feeder {feeder}. Skipping.")
+                continue
+                
+            # Process weather features
+            T8_data = temp_merged
+            fb_df = T8_data[['datetime', 'final_usage']]
+            fb_df = fb_df.rename(columns={"datetime": "ds", "final_usage": "y"})
+
+            # Train Prophet model
+            logger.info("Predicting from Prophet model")           
+        
+            # Load Model Prophet
+            model_path = os.path.join("D:/Data Science Projects/Load Forecast/src/Model_P", 
+                                    f"{feeder}_flat_prophet.pickle")
+            fbp_model = load_model(model_path)
+            if fbp_model is None:
+                logger.error(f"Failed to load Prophet model for feeder {feeder}. Skipping Linear Regression training.")
+                continue
+            future = pd.DataFrame(fb_df['ds'])
+            forecast = fbp_model.predict(future)
+            Fb_result = forecast[['ds', 'yhat']]
+            D_Prophet = pd.merge(T8_data, Fb_result, left_on='datetime', right_on='ds')
+            D_Prophet['yhat'] = D_Prophet['yhat'].astype(float)
+            temp_merged = D_Prophet.copy()
+            temp_merged = weather_features(temp_merged)
+            logger.info(f"Processing feeder: {feeder}")
+           
+            if temp_merged.empty:
+                logger.warning(f"No forecast data found for feeder {feeder}. Skipping.")
+                continue
+        
+            if temp_merged is None or temp_merged.empty:
+                logger.error(f"No merged data found for feeder {feeder}. Skipping.")
+                continue
+                
+            # Loading LR Model and LGB model
+            model_path_1= os.path.join("D:/Data Science Projects/Load Forecast/src/Model_P", 
+                                    f"{feeder}_LR.pickle")
+            model_path_2= os.path.join("D:/Data Science Projects/Load Forecast/src/Model_P",
+                              f"{feeder}_flat_LGBM.pickle")
+            LR_model = load_model(model_path_1)
+            LGB_model = load_model(model_path_2)
+            X=column_selection(temp_merged)
+            Y=temp_merged['final_usage']
+
+            #Metrics for FB Prophet model on complete Training Data
+            logger.info(f"PE, APE and RSE calculated f0r FBP Model for {feeder}")
+    
+            temp_merged['FBP_percentage_err'] = (D_Prophet['yhat']-temp_merged['final_usage'])/temp_merged['final_usage']
+            temp_merged['FBP_abs_percentage_err'] = abs((D_Prophet['yhat']-temp_merged['final_usage'])/temp_merged['final_usage'])
+            temp_merged['FBP_RMSE'] = np.sqrt((D_Prophet['yhat']-temp_merged['final_usage'])**2)
+
+            #Prediction using Linear model complete Training Data
+            # Match training format by adding constant
+            X_const = sm.add_constant(X, has_constant='add')
+            preds = LR_model.predict(X_const)
+            temp_merged['LR_Result'] = pd.Series(preds, index=X_const.index)
+            logger.info(f"Prediction completed on complete Training data on Linear Model for {feeder}")
+            logger.info(f"PE, APE and RSE calculated f0r Linear Model for {feeder}")
+
+            #Metrics for LR model on complete Training Data
+            temp_merged['LR_percentage_err'] = (pd.to_numeric(temp_merged['LR_Result'], errors='coerce') -
+            pd.to_numeric(temp_merged['final_usage'], errors='coerce'))/(pd.to_numeric(temp_merged['final_usage'], errors='coerce'))
+
+            temp_merged['LR_abs_percentage_err'] = abs((pd.to_numeric(temp_merged['LR_Result'], errors='coerce') -
+            pd.to_numeric(temp_merged['final_usage'], errors='coerce'))/(pd.to_numeric(temp_merged['final_usage'], errors='coerce')))
+
+            temp_merged['LR_RMSE'] = np.sqrt((pd.to_numeric(temp_merged['LR_Result'], errors='coerce') -
+            pd.to_numeric(temp_merged['final_usage'], errors='coerce')) ** 2)
+
+            #Train Test splitting
+
+            X_train = X.iloc[:int(X.shape[0]*0.9)].reset_index(drop=True)
+            X_test  = X.iloc[int(X.shape[0]*0.9):].reset_index(drop=True)
+            y_train = Y.iloc[:int(Y.shape[0]*0.9)].reset_index(drop=True).to_frame(name='final_usage')
+            y_test  = Y.iloc[int(Y.shape[0]*0.9):].reset_index(drop=True).to_frame(name='final_usage')
+            
+            
+            print('Start predicting...')
+            y_test['y_hat'] = LGB_model.predict(X_test, num_iteration=LGB_model.best_iteration)
+            
+            #Prediction using LGB complete Training Data
+            temp_merged['GBDT_Result'] = LGB_model.predict(X)
+            logger.info(f"Prediction completed on Test data on LGB Model for {feeder}")
+            
+            #Metrics for LGB model on Complete Training Data and Test data        
+            #Prediction yhat on test data using LGB
+            logger.info(f"PE, APE and RSE calculated f0r LGB for {feeder}")
+            y_test['GBDT_abs_percentage_err_Y'] = abs((y_test['y_hat']-y_test['final_usage'])/y_test['final_usage'])
+            y_test['GBDT_RMSE_Y'] = np.sqrt((y_test['y_hat']-y_test['final_usage'])**2)
+
+            temp_merged['GBDT_percentage_err'] = (temp_merged['GBDT_Result']-temp_merged['final_usage'])/temp_merged['final_usage']
+            temp_merged['GBDT_abs_percentage_err'] = abs((temp_merged['GBDT_Result']-temp_merged['final_usage'])/temp_merged['final_usage'])
+            temp_merged['GBDT_RMSE'] = np.sqrt((temp_merged['GBDT_Result']-temp_merged['final_usage'])**2)
+
 
     
-    temp_merged['LR_Result'] = LR_model_load.predict(X)
-#     temp_merged['LR_Result'] = new_results.predict(X)
+             # Collect metric names and values only once per feeder
+            metric_names = [
+                "FBP_percentage_err",
+                "FBP_abs_percentage_err",
+                "FBP_RMSE",
+                "LR_abs_percentage_err",
+                "LR_percentage_err",
+                "LR_RMSE",
+                "GBDT_RMSE",
+                "GBDT_abs_percentage_err",
+                "GBDT_percentage_err",
+                "GBDT_abs_percentage_err_Y",
+                "GBDT_RMSE_Y"
+                ]   
     
-    temp_merged['LR_percentage_err'] = (temp_merged['LR_Result']-temp_merged['final_usage'])/temp_merged['final_usage']
-    temp_merged['LR_abs_percentage_err'] = abs((temp_merged['LR_Result']-temp_merged['final_usage'])/temp_merged['final_usage'])
-    temp_merged['LR_RMSE'] = np.sqrt((temp_merged['LR_Result']-temp_merged['final_usage'])**2)
-
-    temp_merged['yhat_percentage_err'] = (temp_merged['yhat']-temp_merged['final_usage'])/temp_merged['final_usage']
-    temp_merged['yhat_abs_percentage_err'] = abs((temp_merged['yhat']-temp_merged['final_usage'])/temp_merged['final_usage'])
+            metric_values = [
+            float(temp_merged.describe()['FBP_percentage_err'][1]),
+            float(temp_merged.describe()['FBP_abs_percentage_err'][1]),
+            float(temp_merged.describe()['FBP_RMSE'][1]),
+            float(temp_merged.describe()['LR_abs_percentage_err'][1]),
+            float(temp_merged.describe()['LR_percentage_err'][1]),
+            float(temp_merged.describe()['LR_RMSE'][1]),
+            float(temp_merged.describe()['GBDT_RMSE'][1]),
+            float(temp_merged.describe()['GBDT_abs_percentage_err'][1]),
+            float(temp_merged.describe()['GBDT_percentage_err'][1]),
+            float(y_test.describe()['GBDT_abs_percentage_err_Y'][1]),
+            float(y_test.describe()['GBDT_RMSE_Y'][1])
+            ]
     
-    y_test_cal = temp_merged[['final_usage']]
-
-    X_test_cal = column_selection(temp_merged)
-
-
-
-    X_train = X_test_cal[:int(X_test_cal.shape[0]*0.9)]
-    X_test = X_test_cal[int(X_test_cal.shape[0]*0.9):]
-    y_train = y_test_cal[:int(X_test_cal.shape[0]*0.9)]
-    y_test = y_test_cal[int(X_test_cal.shape[0]*0.9):]
-
-    # X_train, X_test, y_train, y_test = train_test_split(
-    # X_test_cal, y_test_cal, test_size=0.2, random_state=42)
-
-    lgb_train = lgb.Dataset(X_train, y_train)
-    lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
-
-    params = {
-        'task': 'train',
-        'boosting_type': 'gbdt',  
-        'objective': 'regression', 
-        'metric': {'mape'},  
-        'num_leaves': 200,   
-        'learning_rate': 0.05,  
-        'feature_fraction': 0.7, 
-        'bagging_fraction': 0.7, 
-        'bagging_freq': 50,  
-        'verbose':1  
-    }
-
-    print('Start training...')
-    model = lgb.train(params,lgb_train,num_boost_round=2000,valid_sets=lgb_eval, early_stopping_rounds=300)
-    # model = lgb.train(params,lgb_train,num_boost_round=2000)
-
-
-    print('Start predicting...')
-    y_hat = model.predict(X_test, num_iteration=model.best_iteration)
-
-
-    print('MAPE for load data : ')
-    temp_merged['GBDT_FV_Result'] = model.predict(X_test_cal)
-    temp_merged['GBDT_FV_percentage_err'] = (temp_merged['GBDT_FV_Result']-temp_merged['final_usage'])/temp_merged['final_usage']
-    temp_merged['GBDT_FV_abs_percentage_err'] = abs((temp_merged['GBDT_FV_Result']-temp_merged['final_usage'])/temp_merged['final_usage'])
-    y_test['valid'] = model.predict(X_test)
-    y_test['GBDT_FV_abs_percentage_err'] = abs((y_test['valid']-y_test['final_usage'])/y_test['final_usage'])
-    y_test['GBDT_FV_RMSE'] = np.sqrt((y_test['valid']-y_test['final_usage'])**2)
-
+            # Create a single column DataFrame for this feeder
+            df = pd.DataFrame({feeder: metric_values}, index=metric_names)
     
-    y_test_cal = temp_merged[['final_usage']]
+            # Join into main table
+            if result_summary.empty:
+                result_summary = df
+            else:
+                result_summary = result_summary.join(df, how="outer")
 
-    X_test_cal = column_selection(temp_merged)
+            # After loop: save with metric_name as index
+            result_summary.index.name = "metric_name"
+            # Saving output to csv
+            Path_dir=Path("D:/Data Science Projects/Load Forecast/src/Metrics_Result_Summary")
+            Filename_1 = "Metrics_Result_Summary.csv"
+            Path_dir.mkdir(parents=True, exist_ok=True)
+            dtype_csv_path = Path_dir / Filename_1
+            result_summary.to_csv(dtype_csv_path)
 
+            # === Read CSV ===
+            csv_path = Path("D:/Data Science Projects/Load Forecast/src/Metrics_Result_Summary/Metrics_Result_Summary.csv")
+            df = pd.read_csv(csv_path)
 
-    lgb_train = lgb.Dataset(X_test_cal, y_test_cal)
-    # lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
+            # --- Identify Best Models for MAPE and RMSE ---
+            # Filter for only absolute percentage error metrics (MAPE equivalents)
+            mape_metrics = df[df["metric_name"].str.contains("abs_percentage_err$", case=False)]
 
-    params = {
-        'task': 'train',
-        'boosting_type': 'gbdt',  
-        'objective': 'regression', 
-        'metric': {'mape'},  
-        'num_leaves': 200,   # test with reduced value
-        'learning_rate': 0.05,  
-        'feature_fraction': 0.7, # test with reduced value
-        'bagging_fraction': 0.7, 
-        'bagging_freq': 50,  
-        'verbose':1  
-    }
+            # Filter for only RMSE metrics
+            rmse_metrics = df[df["metric_name"].str.contains("RMSE$", case=False)]
 
-    print('Start training...')
-    model = lgb.train(params,lgb_train,num_boost_round=2000)
+            # Get the metric_name with the lowest value for each feeder
+            best_mape = mape_metrics.set_index("metric_name").idxmin()
+            best_rmse = rmse_metrics.set_index("metric_name").idxmin()
 
+            summary = pd.DataFrame({
+                "Best MAPE Model": best_mape,
+                "Best RMSE Model": best_rmse
+            })
 
-    print('Start predicting...')
-    # y_hat = model.predict(X_test, num_iteration=model.best_iteration)
+            # Save summary to CSV
+            summary_path = csv_path.parent / "Best_Model_Summary.csv"
+            summary.to_csv(summary_path)
+            print(f"Best model summary saved to: {summary_path}")
 
+            # Print summary
+            print("\n=== Best Model per Feeder ===")
+            print(summary)
+
+            # --- Heatmap for all values ---
+            plt.figure(figsize=(10, 6))
+            sns.heatmap(df.set_index("metric_name"), annot=True, fmt=".3f", cmap="YlGnBu")
+            plt.title("Model Metric Comparison per Feeder")
+            plt.tight_layout()
+            plt.show()
+
+    except Exception as e:
+        logger.error(f"Error in model Testing process: {str(e)}")
+        raise ValueError("Model Testing failed") from e
     
-    
-    key_GBDT = '/'+(SP_ID_List[0])+'_flat_GBDT.pickle'
-    GBDT_model_save = save_model_to_s3(model,bucket,key_GBDT)
-    gbm_pickle = read_joblib('s3://'+bucket+key_GBDT)
-    temp_merged['GBDT_Result'] = gbm_pickle.predict(X_test_cal)
+def main():
+    try:
+        logger.info("Starting model testing pipeline")
+        # Test model
+        logger.info("Starting model testing process")
+        results = test_data()
+        
+        logger.info('Model Testing Successfully')
+        print("Testing completed successfully. Check log file for details.")
+        return 0
+        
+    except Exception as e:
+        logger.error(f"Fatal error in main execution: {str(e)}", exc_info=True)
+        print(f"Error occurred: {str(e)}")
+        return 1
 
-    temp_merged['GBDT_percentage_err'] = (temp_merged['GBDT_Result']-temp_merged['final_usage'])/temp_merged['final_usage']
-    temp_merged['GBDT_abs_percentage_err'] = abs((temp_merged['GBDT_Result']-temp_merged['final_usage'])/temp_merged['final_usage'])
-    temp_merged['GBDT_RMSE'] = np.sqrt((temp_merged['GBDT_Result']-temp_merged['final_usage'])**2)
-
-    
-    df = pd.DataFrame([])
-    df = df.append(temp_merged.describe()['yhat_abs_percentage_err'][1:2])
-    df = df.append(temp_merged.describe()['LR_abs_percentage_err'][1:2])
-    df = df.append(temp_merged.describe()['LR_percentage_err'][1:2])
-    df = df.append(temp_merged.describe()['LR_RMSE'][1:2])
-    df = df.append(temp_merged.describe()['GBDT_RMSE'][1:2])
-    df = df.append(temp_merged.describe()['GBDT_abs_percentage_err'][1:2])
-    df = df.append(temp_merged.describe()['GBDT_percentage_err'][1:2])
-    df = df.append(y_test.describe()['GBDT_FV_abs_percentage_err'][1:2])
-
-    df = df.T
-    df['feeder'] = SCE_SP['CircuitID'][i]
-    # df['feeder_size'] = SCE_SP['id'][i]
-    
-    result_summary = result_summary.append(df)
-#     result_summary.to_csv('summary_temp.csv')
-
-# result_summary.to_csv('summary_test_V3.csv')
-
+if __name__ == "__main__":
+    # No logging setup needed here since it's already imported
+    exit_code = main()
+    sys.exit(exit_code)

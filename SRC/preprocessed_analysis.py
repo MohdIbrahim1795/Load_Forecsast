@@ -154,16 +154,6 @@ def column_selection(df: pd.DataFrame) -> pd.DataFrame:
 #Defining the function to create the dataframe for forecasted data
 
 def create_forecasted_df(usage: Union[str, Path]) -> pd.DataFrame:
-    """ Args:
-        usage: Path to the usage data CSV file (as string or Path object)
-        
-    Returns:
-        Processed DataFrame with forecast data
-        
-    Raises:
-        FileNotFoundError: If usage file doesn't exist
-        ValueError: If required columns are missing or data processing fails
-    """
     logger.info("Creating forecasted DataFrame")
     try:
         # Use the provided usage path parameter

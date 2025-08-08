@@ -23,4 +23,7 @@ env/
 *.pkl
 *.h5
 *.log
-*.pickle
+src/Model_P/**/*.pickle
+src/**/*.pickle
+
+
